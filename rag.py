@@ -134,6 +134,20 @@ def extract_query_parameters(query):
     
     return final_destinations, target_days, max_price,final_activities
 
+def detect_language(client, text):
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=f"Detect language of this text and return only the ISO code (like 'en' or 'ur'): {text}"
+    )
+    return response.text.strip().lower()
+
+def translate_text(client, text, target_lang):
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=f"Translate this to {target_lang}. Only return translation: {text}"
+    )
+    return response.text.strip()
+
 # --- 2. MODIFIED filter_and_rank_tours ---
 def filter_and_rank_tours(retrieved_docs, query, max_price=None, target_days=None, max_results=3):
     """Filter tours based on destinations, duration, price, and activities."""
@@ -569,7 +583,6 @@ Rules:
 
 
 # --- 5. Interactive Query System ---
-
 def process_user_query(query):
     """
     Process a single user query and return a dict:
@@ -578,43 +591,100 @@ def process_user_query(query):
         'general_output': <non-RAG answer>,
         'model_answer': <best available answer>
     }
+
+    Multilingual support with robust fallbacks:
+    - Detects Urdu queries
+    - Translates to English for RAG processing
+    - Generates answer
+    - Translates back to Urdu if needed
+    - Handles Gemini failures gracefully
     """
 
-    # --- 1. Check if this is a travel query ---
-    if not is_travel_query(query):
-        general_response = generate_non_travel_input(query)
+    # --- 0. Detect language ---
+    try:
+        lang = detect_language(client, query)
+    except Exception as e:
+        print(f"Language detection failed: {e}")
+        lang = "en"
+
+    # --- 1. Translate to English if Urdu ---
+    translated_query = query
+    if lang == "ur":
+        try:
+            translated_query = translate_text(client, query, "English")
+        except Exception as e:
+            print(f"Translation to English failed: {e}")
+            translated_query = query  # fallback
+
+    # --- 2. Check if this is a travel query ---
+    if not is_travel_query(translated_query):
+        try:
+            general_response = generate_non_travel_input(translated_query, language=lang)
+            final_general_output = general_response.get('content', "معذرت، اس وقت جواب فراہم نہیں کیا جا سکتا۔")
+        except Exception as e:
+            print(f"Non-RAG generation failed: {e}")
+            final_general_output = "معذرت، اس وقت جواب فراہم نہیں کیا جا سکتا۔" if lang=="ur" else "Sorry, could not get a response."
+
+        # Translate to Urdu if needed
+        if lang == "ur" and final_general_output and not final_general_output.strip().startswith("معذرت"):
+            try:
+                final_general_output = translate_text(client, final_general_output, "Urdu")
+            except Exception as e:
+                print(f"Translation back to Urdu failed: {e}")
+
         return {
             "rag_output": None,
-            "general_output": general_response['content'],
-            "model_answer": general_response['content']
+            "general_output": final_general_output,
+            "model_answer": final_general_output
         }
 
-    # --- 2. Extract parameters and retrieve documents ---
-    destination, target_days, max_price, activities = extract_query_parameters(query)
+    # --- 3. Extract parameters and retrieve documents ---
+    destination, target_days, max_price, activities = extract_query_parameters(translated_query)
     
-    query_embedding = model_embedder.encode([query]).tolist()
-    search_results = index.query(vector=query_embedding, top_k=15, include_metadata=True)
-    retrieved_docs = [match['metadata'] for match in search_results['matches']]
+    try:
+        query_embedding = model_embedder.encode([translated_query]).tolist()
+        search_results = index.query(vector=query_embedding, top_k=15, include_metadata=True)
+        retrieved_docs = [match['metadata'] for match in search_results.get('matches', [])]
+    except Exception as e:
+        print(f"Pinecone search failed: {e}")
+        retrieved_docs = []
 
-    filtered_docs = filter_and_rank_tours(retrieved_docs, query, max_price, target_days, max_results=3)
+    filtered_docs = filter_and_rank_tours(retrieved_docs, translated_query, max_price, target_days, max_results=3)
 
-    # --- 3. Generate outputs ---
+    # --- 4. Generate outputs ---
+    rag_output = None
+    general_output = None
+
+    # Generate RAG output
     if filtered_docs:
-        rag_output = generate_with_rag_input(query,activities, filtered_docs)['content']
-        general_output = generate_without_rag_input(query)['content']
+        try:
+            rag_output = generate_with_rag_input(translated_query, activities, filtered_docs).get('content')
+        except Exception as e:
+            print(f"RAG generation failed: {e}")
+            rag_output = None
 
-        # Return a dict that app.py expects
-        return {
-            "rag_output": rag_output,
-            "general_output": general_output,
-            "model_answer": rag_output or general_output
-        }
+    # Generate general output
+    try:
+        general_output = generate_without_rag_input(translated_query).get('content', "معذرت، اس وقت جواب فراہم نہیں کیا جا سکتا۔")
+    except Exception as e:
+        print(f"Non-RAG generation failed: {e}")
+        general_output = "معذرت، اس وقت جواب فراہم نہیں کیا جا سکتا۔" if lang=="ur" else "Sorry, could not get a response."
 
-    else:
-        # No tours matched, only general output
-        general_output = generate_without_rag_input(query)['content']
-        return {
-            "rag_output": None,
-            "general_output": general_output,
-            "model_answer": general_output
-        }
+    # Translate outputs back to Urdu if needed
+    if lang == "ur":
+        if rag_output:
+            try:
+                rag_output = translate_text(client, rag_output, "Urdu")
+            except Exception as e:
+                print(f"Translation of RAG output failed: {e}")
+        if general_output:
+            try:
+                general_output = translate_text(client, general_output, "Urdu")
+            except Exception as e:
+                print(f"Translation of general output failed: {e}")
+
+    return {
+        "rag_output": rag_output,
+        "general_output": general_output,
+        "model_answer": rag_output or general_output
+    }

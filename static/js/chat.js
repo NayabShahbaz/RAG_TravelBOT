@@ -205,11 +205,18 @@ const cancelBtn = document.getElementById("cancel-btn");
 let chatConversations = []; // All previous conversations
 let currentConversation = { id: Date.now(), messages: [] }; // Current conversation
 
+function isUrdu(text) {
+    // Urdu Unicode range: \u0600-\u06FF
+    return /[\u0600-\u06FF]/.test(text);
+}
+
+
 cancelBtn.addEventListener("click", () => {
     if (speechSynthesis.speaking) {
         speechSynthesis.cancel(); // stops all ongoing speech
     }
 });
+
 
 
 pauseBtn.addEventListener("click", () => {
@@ -251,6 +258,18 @@ function appendMessage(sender, message) {
 
     const msgDiv = document.createElement("div");
     msgDiv.classList.add("message-card", sender);
+
+    // If system message is Urdu, add lang attribute for RTL
+    if (sender === "system" && isUrdu(message)) {
+        msgDiv.lang = "ur";        // used in HTML for CSS
+        msgDiv.style.direction = "rtl";
+        msgDiv.style.textAlign = "right";
+    } else if (sender === "system") {
+        msgDiv.lang = "en";
+        msgDiv.style.direction = "ltr";
+        msgDiv.style.textAlign = "left";
+    }
+
     msgDiv.innerHTML = message;
     wrapper.appendChild(msgDiv);
 
@@ -276,6 +295,7 @@ function appendMessage(sender, message) {
     chatBox.appendChild(wrapper);
     chatBox.scrollTop = chatBox.scrollHeight;
 }
+
 
 // --- Edit message ---
 function editMessage(wrapper, msgDiv) {
