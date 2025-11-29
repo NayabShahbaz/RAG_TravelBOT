@@ -6,6 +6,8 @@ from google import genai
 from google.genai import types
 import re
 from dotenv import load_dotenv
+import time
+
 
 load_dotenv()
 
@@ -120,110 +122,115 @@ def extract_query_parameters(query):
             max_price = float(number_matches[0].replace(',', ''))
         else:
             max_price = None
+     # Activities list
+    activity_keywords = [
+        "boating", "hiking", "trekking", "glacier", "rafting", 
+        "sightseeing", "shopping", "fort", "lake", "valley",
+        "camping", "jeep ride","jeep", "zipline", "adventure", "resort",
+        "waterfall", "forest", "meadows", "guided hike", "nature walk",
+    "river"
+    ]
+    final_activities = [act for act in activity_keywords if act in query_lower]
     
-    return final_destinations, target_days, max_price
+    return final_destinations, target_days, max_price,final_activities
 
 # --- 2. MODIFIED filter_and_rank_tours ---
 def filter_and_rank_tours(retrieved_docs, query, max_price=None, target_days=None, max_results=3):
-    """
-    Filter and rank tours based on query constraints.
-    Returns the best tour per specified destination, or the top N overall.
-    """
-    destination_list, extracted_days, extracted_price = extract_query_parameters(query)
-    
-    # Use extracted parameters if available, otherwise use defaults
+    """Filter tours based on destinations, duration, price, and activities."""
+    destination_list, extracted_days, extracted_price, extracted_activities = extract_query_parameters(query)
+
+    print("\n--- DEBUG FILTER PARAMETERS ---")
+    print("Query:", query)
+    print("Target destinations:", destination_list)
+    print("Target days:", target_days)
+    print("Max price:", max_price)
+    print("Activities extracted:", extracted_activities)
+
     if max_price is None:
         max_price = extracted_price if extracted_price else float('inf')
     if target_days is None:
         target_days = extracted_days if extracted_days else None
-    
-    # Dictionary to store the best tour found for each specific destination
+
     best_tours_by_destination = {}
-    all_filtered_tours = [] # For general ranking if no destination specified
-    
-    # Normalize destination list for comparison
+    all_filtered_tours = []
+
     target_destinations = [d.lower() for d in destination_list]
-    
+
+    i=0
     for doc in retrieved_docs:
+        i+=1
+        print(i)
         price = extract_numeric_price(doc.get("Price", "N/A"))
         duration = extract_numeric_duration(doc.get("Duration", "N/A"))
         doc_destination = doc.get("Destination", "").lower()
-        
-        # Check destination match
-        # If no destinations were specified, every document is a potential match.
-        # If destinations WERE specified, the document must contain one of them.
+        doc_itinerary = doc.get("Itinerary", "").lower()
+
+        # Destination check
         destination_match = True
         if target_destinations:
             destination_match = any(d in doc_destination for d in target_destinations)
-        
-        # Check if tour meets the criteria
+
+        # Duration and price check
         price_ok = price <= max_price if max_price != float('inf') else True
         duration_ok = (duration == target_days) if target_days else True
-        
-        # Calculate a score for ranking: lower is better (prioritize price, then duration match)
-        score = price + (abs(duration - (target_days if target_days else 0)) * 5000)
-        
-        if price_ok and duration_ok and destination_match:
-            tour_info = {
-                'doc': doc,
-                'price': price,
-                'duration': duration,
-                'score': score
-            }
 
-            # If a specific destination was targeted and found in the document
+        # Activity check
+        activities_ok = True
+        if extracted_activities:
+            print(f"doc it{doc_itinerary}")
+            activities_ok = any(act in doc_itinerary for act in extracted_activities)
+        
+        print(f"\n--- CHECKING DOC {i} ---")
+        print("Name:", doc.get("Name"))
+        print("Destination:", doc_destination, "Match:", destination_match)
+        print("Price:", price, "Price OK:", price_ok)
+        print("Duration:", duration, "Duration OK:", duration_ok)
+        print("Itinerary contains activity:", activities_ok)
+
+        # Combined check
+        if price_ok and duration_ok and destination_match and activities_ok:
+            score = price + (abs(duration - (target_days if target_days else 0)) * 5000)
+            tour_info = {'doc': doc, 'price': price, 'duration': duration, 'score': score}
+            print(f"ADDING TO RESULTS:{tour_info}")
+
             matched_dest = next((d for d in target_destinations if d in doc_destination), None)
-            
             if matched_dest:
                 if matched_dest not in best_tours_by_destination or score < best_tours_by_destination[matched_dest]['score']:
                     best_tours_by_destination[matched_dest] = tour_info
-            
-            # If no destination was specified or if we are collecting all general matches
+
             if not target_destinations:
                 all_filtered_tours.append(tour_info)
 
-
-    # Final selection logic
+    # Final selection
     if best_tours_by_destination:
-        # Return the best tour for each requested destination
         final_tours = [info['doc'] for info in best_tours_by_destination.values()]
-        # Sort by best score overall (e.g., cheapest tour first)
         final_tours.sort(key=lambda doc: extract_numeric_price(doc.get("Price", "N/A")))
         return final_tours[:max_results]
-    
+
     elif all_filtered_tours:
-        # If no destination specified, return the top 'max_results' overall cheapest tours that match price/duration
         all_filtered_tours.sort(key=lambda x: x['score'])
         return [info['doc'] for info in all_filtered_tours][:max_results]
-    
-    # Fallback: If no *perfect* matches, find close alternatives
-    # (The existing 'close match' logic is complex and often redundant with a good scoring function. 
-    # For simplification, we'll revert to the top 3 results from the Pinecone retrieval if nothing
-    # matched the strict price/duration filter.)
-    
-    # Fallback to the top 3 documents from the initial Pinecone retrieval, 
-    # just ensuring they meet the destination filter if one was set.
+
+    # Fallback if nothing matches
     fallback_docs = []
     for doc in retrieved_docs:
         doc_destination = doc.get("Destination", "").lower()
         destination_match = True
         if target_destinations:
             destination_match = any(d in doc_destination for d in target_destinations)
-        
         if destination_match:
             fallback_docs.append(doc)
 
-    # If even fallback is used, prioritize the cheapest tour if price constraint was set
     if fallback_docs:
-        # Sort fallback by price (cheaper first)
         fallback_docs.sort(key=lambda doc: extract_numeric_price(doc.get("Price", "N/A")))
-        # Return the best one only, as a close match is often best presented as a single alternative
         return fallback_docs[:1]
 
+    
     return []
 
+
 # --- 3. MODIFIED generate_with_rag_input ---
-def generate_with_rag_input(query, retrieved_docs, max_tokens=2048):
+def generate_with_rag_input(query,extracted_activities, retrieved_docs, max_tokens=2048):
     """Generates a context-aware response for single or multiple tours."""
 
     if not retrieved_docs:
@@ -233,7 +240,7 @@ def generate_with_rag_input(query, retrieved_docs, max_tokens=2048):
     if len(retrieved_docs) == 1:
         best_tour_metadata = retrieved_docs[0] 
         full_itinerary_text = best_tour_metadata.get("Itinerary", "N/A")
-        extracted_highlights = get_clean_highlights(full_itinerary_text)
+        extracted_highlights = get_clean_highlights(full_itinerary_text, extracted_activities)
         
         final_output = f"""
 I found the best match for your request! Here are the details for the tour:
@@ -367,8 +374,6 @@ def is_travel_query(query):
     q = query.lower()
     print(f"query:{q}")
 
-
-
     # Strong travel intent keywords (must be combined with a destination OR numbers)
     strong_intent = [
         "give me a", "i want a", "find me a",
@@ -403,35 +408,45 @@ def is_travel_query(query):
     return False
 
 def call_gemini_model(system_prompt, user_prompt, max_tokens):
-    """Handles the communication with the Gemini API."""
-    try:
-        config = types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            temperature=0.0,
-            max_output_tokens=max_tokens
-        )
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[user_prompt],
-            config=config
-        )
-        if response.text:
-            return response.text
-        else:
-            return "API_RETURNED_EMPTY_CONTENT"
-    except Exception as e:
-        return f"API_ERROR_FAILURE: {e}"
+    max_retries = 3
+    backoff_time = 2  # initial 2 seconds
+    for attempt in range(max_retries):
+        try:
+            config = types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=0.0,
+                max_output_tokens=max_tokens
+            )
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=[user_prompt],
+                config=config
+            )
+            if response.text:
+                return response.text
+            else:
+                return "API_RETURNED_EMPTY_CONTENT"
+        except Exception as e:
+            error_str = str(e)
+            if "429" in error_str:
+                print(f"⚠️ 429 Resource Exhaustion, retrying in {backoff_time} seconds... (Attempt {attempt+1})")
+                time.sleep(backoff_time)
+                backoff_time *= 2  # exponential backoff
+                continue
+            else:
+                return f"API_ERROR_FAILURE: {e}"
+    return "API_ERROR_FAILURE: 429 Resource Exhaustion - retries exhausted"
 
 # --- 4. Generation Functions (Kept as is) ---
-
-def get_clean_highlights(itinerary_text):
+def get_clean_highlights(itinerary_text, requested_activities=None):
     """Uses Gemini to perform a simple, clean bullet-point extraction."""
     if not itinerary_text or itinerary_text.strip() == "" or itinerary_text == "Unknown":
         return ["• No highlights available"]
 
+    requested_activities=requested_activities or []
     # Improved prompt that works with both formats
     system_prompt_extractor = """You are a travel highlights extractor. Extract 3-5 key highlights from the tour itinerary. 
-Focus on unique experiences, main attractions, and special features. 
+Focus on unique experiences, main attractions, and user requested_activities if provided.
 Return ONLY bullet points starting with •, no other text.
 Examples of good highlights:
 • Continental breakfast included
@@ -458,6 +473,16 @@ Examples of good highlights:
             clean_line = line.lstrip('•-* ').strip()
             if clean_line:
                 bullet_points.append(f"• {clean_line}")
+
+
+     # --- Ensure requested activities appear ---
+    text_lower = itinerary_text.lower()
+    for activity in requested_activities:
+        if any(activity.lower() in bp.lower() for bp in bullet_points):
+            continue  # Already mentioned
+        if activity.lower() in text_lower:
+            # Add a bullet with the activity
+            bullet_points.append(f"• {activity.capitalize()} included")
     
     # If we got good bullet points, return them (limit to 5)
     if bullet_points and len(bullet_points) >= 2:
@@ -508,14 +533,14 @@ def extract_fallback_highlights(itinerary_text):
     
     return highlights[:5]
 
-def generate_without_rag_input(prompt, max_tokens=2048):
+def generate_without_rag_input(prompt, max_tokens=1024):
     """Generates a response using only the query (no context) via Gemini API."""
     # Constrained prompt to prevent hallucination
     system_prompt = "You are a highly constrained travel assistant. Your task is to answer the user query ONLY with general knowledge and a disclaimer about not having specific data. DO NOT invent budgets, specific tour names, or itineraries."
     content = call_gemini_model(system_prompt, prompt, max_tokens)
     return {"role": "assistant", "content": content}
 
-def generate_non_travel_input(prompt, language='en', max_tokens=1000):
+def generate_non_travel_input(prompt, language='en', max_tokens=1024):
     lang_instruction="Answer in Urdu." if language=='ur'else "Answer in English."
     """
     Generates a helpful, natural, non-travel response using general reasoning only.
@@ -565,7 +590,7 @@ def process_user_query(query):
         }
 
     # --- 2. Extract parameters and retrieve documents ---
-    destination, target_days, max_price = extract_query_parameters(query)
+    destination, target_days, max_price, activities = extract_query_parameters(query)
     
     query_embedding = model_embedder.encode([query]).tolist()
     search_results = index.query(vector=query_embedding, top_k=15, include_metadata=True)
@@ -575,7 +600,7 @@ def process_user_query(query):
 
     # --- 3. Generate outputs ---
     if filtered_docs:
-        rag_output = generate_with_rag_input(query, filtered_docs)['content']
+        rag_output = generate_with_rag_input(query,activities, filtered_docs)['content']
         general_output = generate_without_rag_input(query)['content']
 
         # Return a dict that app.py expects

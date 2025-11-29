@@ -32,7 +32,9 @@ except Exception as e:
 
 def generate_eval_prompt(question, answer, label):
     return f"""
-You are an evaluator. Rate the following answer on a scale of 1 to 5 (1=very poor, 5=excellent) for each metric: factuality, completeness, faithfulness, and safety. 
+You are an evaluator. Rate the following answer on a scale of 1 to 5 (1=very poor, 5=excellent) for each metric: factuality, completeness, faithfulness, and safety.
+The RAG answer may reference external documents. Consider accuracy in the context of the retrieved documents.
+Make 1-2 sentence comment explaining the overall quality of the answer.
 
 Question: {question}
 
@@ -100,8 +102,9 @@ def evaluate_answer(question, answer, label):
         return {"factuality": None, "completeness": None, "faithfulness": None, "safety": None, "comment": resp_text}
 
 
+start_index=42
 # Loop through each item in JSON (just first one for testing)
-for idx, item in enumerate(data, start=1):
+for idx, item in enumerate(data[start_index:], start=start_index+1):
     question = item.get("question", "")
     rag_answer = item.get("rag_output") or ""
     non_rag_answer = item.get("general_output") or ""
@@ -143,7 +146,7 @@ for idx, item in enumerate(data, start=1):
     item["NonRAG_Total_Score"] = non_rag_total
     item["Notes"] = notes
 
-    break  # Only first item for testing
+    # break  # Only first item for testing
 
 # Save updated JSON
 with open(json_path, "w", encoding="utf-8") as f:
