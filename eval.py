@@ -13,6 +13,7 @@ json_path = "rag_evaluation.json"
 # Load JSON data
 with open(json_path, "r", encoding="utf-8") as f:
     data = json.load(f)
+
 print(f"[INFO] Loaded {len(data)} items from {json_path}")
 
 GEMINI_MODEL = "gemini-2.5-flash"
@@ -102,7 +103,7 @@ def evaluate_answer(question, answer, label):
         return {"factuality": None, "completeness": None, "faithfulness": None, "safety": None, "comment": resp_text}
 
 
-start_index=42
+start_index=45
 # Loop through each item in JSON (just first one for testing)
 for idx, item in enumerate(data[start_index:], start=start_index+1):
     question = item.get("question", "")
