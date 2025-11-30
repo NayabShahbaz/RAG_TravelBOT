@@ -1,197 +1,3 @@
-// const chatBox = document.getElementById("chat-box");
-// const chatHistory = document.getElementById("chat-history");
-// const newChatBtn = document.getElementById("new-chat-btn");
-// const sendBtn = document.getElementById("send-btn");
-// const userInput = document.getElementById("user-msg");
-
-// let chatConversations = []; // all previous conversations
-// let currentConversation = null; // current conversation messages
-
-// // Check for browser support
-// const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-// if (SpeechRecognition) {
-//     const recognition = new SpeechRecognition();
-//     recognition.lang = 'en-US';
-//     recognition.interimResults = false;
-
-//     const micBtn = document.getElementById("mic-btn");
-
-//     micBtn.addEventListener("click", () => {
-//         recognition.start();
-//     });
-
-//     recognition.addEventListener("result", (event) => {
-//         const transcript = event.results[0][0].transcript;
-//         userInput.value = transcript;  // Put recognized text in input
-//         sendMessage();                // Automatically send message
-//     });
-
-//     recognition.addEventListener("end", () => {
-//         // Optional: stop recognition automatically
-//         recognition.stop();
-//     });
-// } else {
-//     console.warn("Speech Recognition not supported in this browser.");
-// }
-
-
-
-// function appendMessage(sender, message) {
-//     const wrapper = document.createElement("div");
-//     wrapper.classList.add("message-wrapper");
-
-//     const msgDiv = document.createElement("div");
-//     msgDiv.classList.add("message-card", sender);
-//     msgDiv.innerHTML = message;
-//     wrapper.appendChild(msgDiv);
-
-//     if (sender === "user") {
-//         const actionsDiv = document.createElement("div");
-//         actionsDiv.classList.add("msg-actions-wrapper");
-
-//         const copyIcon = document.createElement("span");
-//         copyIcon.innerHTML = "📋";
-//         copyIcon.title = "Copy message";
-//         copyIcon.addEventListener("click", () => navigator.clipboard.writeText(msgDiv.innerText));
-
-//         const editIcon = document.createElement("span");
-//         editIcon.innerHTML = "✏️";
-//         editIcon.title = "Edit message";
-//         editIcon.addEventListener("click", () => editMessage(wrapper, msgDiv));
-
-//         actionsDiv.appendChild(copyIcon);
-//         actionsDiv.appendChild(editIcon);
-//         wrapper.appendChild(actionsDiv);
-//     }
-
-//     chatBox.appendChild(wrapper);
-//     chatBox.scrollTop = chatBox.scrollHeight;
-// }
-
-// function editMessage(wrapper, msgDiv) {
-//     const nextSibling = wrapper.nextElementSibling;
-//     let oldResponse = null;
-
-//     // Capture old system response if exists
-//     if (nextSibling && nextSibling.querySelector(".message-card.system")) {
-//         oldResponse = nextSibling.querySelector(".message-card.system").innerHTML;
-//         nextSibling.remove();
-//     }
-
-//     userInput.value = msgDiv.innerText;
-//     wrapper.remove();
-//     userInput.focus();
-
-//     userInput.dataset.oldResponse = oldResponse || "";
-// }
-
-// // Generate new system response and replace inside same box
-// function generateNewResponse(userMsgDiv, systemMsgDiv, oldResponse) {
-//     const message = userMsgDiv.innerText;
-
-//     fetch("/chat", {
-//         method: "POST",
-//         headers: { "Content-Type": "application/json" },
-//         body: JSON.stringify({ message: message, user_id: null })
-//     })
-//     .then(res => res.json())
-//     .then(data => {
-//         // Replace current system message
-//         systemMsgDiv.innerHTML = data.system_msg;
-
-//         // Keep the old response for backward navigation
-//         userInput.dataset.oldResponse = oldResponse;
-//     })
-//     .catch(err => {
-//         console.error(err);
-//         systemMsgDiv.innerHTML = "Error: Could not get response.";
-//     });
-// }
-
-// function addConversationToHistory(conversation) {
-//     const li = document.createElement("li");
-//     li.classList.add("history-card");
-//     li.innerText = conversation.messages.find(m => m.sender === "user")?.message || "New Chat";
-
-//     // store conversation id
-//     li.dataset.convId = conversation.id;
-
-//     li.addEventListener("click", () => {
-//         const convId = parseInt(li.dataset.convId);
-//         const conv = chatConversations.find(c => c.id === convId);
-//         if (!conv) return;
-
-//         chatBox.innerHTML = "";
-//         conv.messages.forEach(m => appendMessage(m.sender, m.message));
-//     });
-
-//     chatHistory.prepend(li);
-// }
-
-// function sendMessage() {
-//     const message = userInput.value.trim();
-//     if (!message) return;
-
-//     if (!currentConversation) {
-//         currentConversation = { id: Date.now(), messages: [] };
-//     }
-
-//     appendMessage("user", message);
-//     currentConversation.messages.push({ sender: "user", message });
-
-//     fetch("/chat", {
-//         method: "POST",
-//         headers: { "Content-Type": "application/json" },
-//         body: JSON.stringify({ message: message, user_id: null })
-//     })
-//     .then(res => res.json())
-//     .then(data => {
-//         // Display system response
-//         appendMessage("system", data.system_msg);
-//         currentConversation.messages.push({ sender: "system", message: data.system_msg });
-
-//         // SPEAK the plain text from server
-//         if (data.raw_text) {  // Make sure your Flask returns raw_text
-//             const utterance = new SpeechSynthesisUtterance(data.raw_text);
-//             utterance.lang = 'en-US';
-//             speechSynthesis.speak(utterance);
-//         }
-//     })
-//     .catch(err => {
-//         console.error(err);
-//         appendMessage("system", "Error: Could not get response.");
-//     });
-
-//     userInput.value = "";
-// }
-
-
-
-
-// // Event listeners
-// sendBtn.addEventListener("click", sendMessage);
-// userInput.addEventListener("keypress", e => { if (e.key === "Enter") sendMessage(); });
-
-// newChatBtn.addEventListener("click", () => {
-//     if (currentConversation && currentConversation.messages.length > 0) {
-//         chatConversations.push(currentConversation);
-//         addConversationToHistory(currentConversation);
-//     }
-
-//     chatBox.innerHTML = "";
-//     userInput.value = "";
-//     currentConversation = null;
-// });
-
-
-// // Optional: Make existing history items clickable on page load
-// document.querySelectorAll("#chat-history li").forEach(li => {
-//     li.addEventListener("click", () => {
-//         chatBox.innerHTML = li.innerHTML;
-//     });
-// });
-
 const chatBox = document.getElementById("chat-box");
 const chatHistory = document.getElementById("chat-history");
 const newChatBtn = document.getElementById("new-chat-btn");
@@ -205,19 +11,12 @@ const cancelBtn = document.getElementById("cancel-btn");
 let chatConversations = []; // All previous conversations
 let currentConversation = { id: Date.now(), messages: [] }; // Current conversation
 
-function isUrdu(text) {
-    // Urdu Unicode range: \u0600-\u06FF
-    return /[\u0600-\u06FF]/.test(text);
-}
-
 
 cancelBtn.addEventListener("click", () => {
     if (speechSynthesis.speaking) {
         speechSynthesis.cancel(); // stops all ongoing speech
     }
 });
-
-
 
 pauseBtn.addEventListener("click", () => {
     if (speechSynthesis.speaking && !speechSynthesis.paused) {
@@ -333,7 +132,7 @@ function sendMessage() {
 
         if (data.raw_text) {
             const utterance = new SpeechSynthesisUtterance(data.raw_text);
-            utterance.lang = 'en-US';
+            utterance.lang = 'en-US';   // English voice
             speechSynthesis.speak(utterance);
         }
     })
