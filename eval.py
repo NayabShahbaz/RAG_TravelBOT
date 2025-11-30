@@ -103,7 +103,7 @@ def evaluate_answer(question, answer, label):
         return {"factuality": None, "completeness": None, "faithfulness": None, "safety": None, "comment": resp_text}
 
 
-start_index=45
+start_index=88
 # Loop through each item in JSON (just first one for testing)
 for idx, item in enumerate(data[start_index:], start=start_index+1):
     question = item.get("question", "")

@@ -149,6 +149,7 @@ def translate_text(client, text, target_lang):
     return response.text.strip()
 
 # --- 2. MODIFIED filter_and_rank_tours ---
+# --- 2. MODIFIED filter_and_rank_tours ---
 def filter_and_rank_tours(retrieved_docs, query, max_price=None, target_days=None, max_results=3):
     """Filter tours based on destinations, duration, price, and activities."""
     destination_list, extracted_days, extracted_price, extracted_activities = extract_query_parameters(query)
@@ -165,15 +166,21 @@ def filter_and_rank_tours(retrieved_docs, query, max_price=None, target_days=Non
     if target_days is None:
         target_days = extracted_days if extracted_days else None
 
+    # --- TOP MATCH SELECTION WHEN NO DURATION SPECIFIED ---
+    if target_days is None and retrieved_docs:
+        top_doc = retrieved_docs[0]  # Pinecone top match
+        print("\n--- TARGET DAYS NOT SPECIFIED: Using Pinecone top match ---")
+        print(f"Selected Top Match: {top_doc.get('Name')} | Destination: {top_doc.get('Destination')} | Price: {top_doc.get('Price')}")
+        return [top_doc]
+
     best_tours_by_destination = {}
     all_filtered_tours = []
 
     target_destinations = [d.lower() for d in destination_list]
 
-    i=0
+    i = 0
     for doc in retrieved_docs:
-        i+=1
-        print(i)
+        i += 1
         price = extract_numeric_price(doc.get("Price", "N/A"))
         duration = extract_numeric_duration(doc.get("Duration", "N/A"))
         doc_destination = doc.get("Destination", "").lower()
@@ -193,7 +200,7 @@ def filter_and_rank_tours(retrieved_docs, query, max_price=None, target_days=Non
         if extracted_activities:
             print(f"doc it{doc_itinerary}")
             activities_ok = any(act in doc_itinerary for act in extracted_activities)
-        
+
         print(f"\n--- CHECKING DOC {i} ---")
         print("Name:", doc.get("Name"))
         print("Destination:", doc_destination, "Match:", destination_match)
@@ -215,15 +222,24 @@ def filter_and_rank_tours(retrieved_docs, query, max_price=None, target_days=Non
             if not target_destinations:
                 all_filtered_tours.append(tour_info)
 
-    # Final selection
+    print(f"selected best tours:{best_tours_by_destination}")
+
+    # --- Final selection with debug logs ---
     if best_tours_by_destination:
         final_tours = [info['doc'] for info in best_tours_by_destination.values()]
         final_tours.sort(key=lambda doc: extract_numeric_price(doc.get("Price", "N/A")))
+        print("\n--- FINAL SELECTION: best_tours_by_destination ---")
+        for t in final_tours:
+            print(f"Selected Tour: {t.get('Name')} | Destination: {t.get('Destination')} | Price: {t.get('Price')}")
         return final_tours[:max_results]
 
     elif all_filtered_tours:
         all_filtered_tours.sort(key=lambda x: x['score'])
-        return [info['doc'] for info in all_filtered_tours][:max_results]
+        print("\n--- FINAL SELECTION: all_filtered_tours ---")
+        for info in all_filtered_tours[:max_results]:
+            t = info['doc']
+            print(f"Selected Tour: {t.get('Name')} | Destination: {t.get('Destination')} | Price: {t.get('Price')} | Score: {info['score']}")
+        return [info['doc'] for info in all_filtered_tours[:max_results]]
 
     # Fallback if nothing matches
     fallback_docs = []
@@ -237,11 +253,13 @@ def filter_and_rank_tours(retrieved_docs, query, max_price=None, target_days=Non
 
     if fallback_docs:
         fallback_docs.sort(key=lambda doc: extract_numeric_price(doc.get("Price", "N/A")))
+        print("\n--- FINAL SELECTION: fallback_docs ---")
+        for t in fallback_docs[:1]:
+            print(f"Selected Tour: {t.get('Name')} | Destination: {t.get('Destination')} | Price: {t.get('Price')}")
         return fallback_docs[:1]
 
-    
+    print("\n--- FINAL SELECTION: NO MATCH ---")
     return []
-
 
 # --- 3. MODIFIED generate_with_rag_input ---
 def generate_with_rag_input(query,extracted_activities, retrieved_docs, max_tokens=2048):
