@@ -86,12 +86,12 @@ def chat():
             rag_output_text = str(response)
 
         # Append both outputs to JSON
-        append_to_json(
-            question=user_message,
-            model_answer=model_answer_text,
-            rag_output=rag_output_text,
-            general_output=general_output_text
-        )
+        #append_to_json(
+         #   question=user_message,
+         #   model_answer=model_answer_text,
+         #   rag_output=rag_output_text,
+         #   general_output=general_output_text
+       # )
 
         # Convert RAG output to HTML for frontend
         import re
@@ -131,7 +131,8 @@ def chat():
     except Exception as e:
         html_response = f"<p>❌ Error processing query: {e}</p>"
     
-    return jsonify({'system_msg': html_response})
+    return jsonify({'system_msg': html_response,
+                   'raw_text': model_answer_text})
 
 if __name__ == '__main__':
     app.run(debug=True)
