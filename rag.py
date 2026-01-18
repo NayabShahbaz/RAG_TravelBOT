@@ -149,7 +149,6 @@ def translate_text(client, text, target_lang):
     return response.text.strip()
 
 # --- 2. MODIFIED filter_and_rank_tours ---
-# --- 2. MODIFIED filter_and_rank_tours ---
 def filter_and_rank_tours(retrieved_docs, query, max_price=None, target_days=None, max_results=3):
     """Filter tours based on destinations, duration, price, and activities."""
     destination_list, extracted_days, extracted_price, extracted_activities = extract_query_parameters(query)
